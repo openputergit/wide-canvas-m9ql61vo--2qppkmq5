@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Restaurant Ordering System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <script src="https://unpkg.com/socket.io-client@4.7.2/dist/socket.io.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Poppins', sans-serif; }
+        .loader {
+            border-top-color: #e53e3e;
+            animation: spinner 1s linear infinite;
+        }
+        @keyframes spinner {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div id="app">
+        <!-- Auth Section -->
+        <div id="authSection" class="min-h-screen flex items-center justify-center p-4">
+            <div class="bg-white p-8 rounded-lg shadow-lg w-full max-w-md">
+                <div class="text-center mb-8">
+                    <h1 class="text-3xl font-bold text-gray-800">Welcome</h1>
+                    <p class="text-gray-600">Table 7</p>
+                </div>
+                <div class="space-y-4">
+                    <input type="text" id="username" placeholder="Username" class="w-full p-3 border rounded-lg">
+                    <input type="password" id="password" placeholder="Password" class="w-full p-3 border rounded-lg">
+                    <button onclick="login()" class="w-full bg-red-500 text-white p-3 rounded-lg hover:bg-red-600 transition">
+                        Login
+                    </button>
+                    <button onclick="toggleAuth()" class="w-full text-red-500">
+                        New user? Sign up
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Menu Section -->
+        <div id="menuSection" class="hidden">
+            <nav class="bg-white shadow-lg">
+                <div class="max-w-7xl mx-auto px-4">
+                    <div class="flex justify-between h-16">
+                        <div class="flex items-center">
+                            <span class="text-xl font-bold text-gray-800">Table 7 Menu</span>
+                        </div>
+                        <div class="flex items-center space-x-4">
+                            <button onclick="showCart()" class="relative">
+                                <i class="bi bi-cart text-2xl"></i>
+                                <span id="cartCount" class="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 text-xs flex items-center justify-center">0</span>
+                            </button>
+                            <button onclick="logout()" class="text-gray-600">
+                                <i class="bi bi-box-arrow-right text-2xl"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </nav>
+
+            <div class="max-w-7xl mx-auto px-4 py-8">
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="menuItems">
+                    <!-- Menu items will be dynamically added here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Cart Section -->
+        <div id="cartSection" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full">
+            <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-bold">Your Cart</h3>
+                    <button onclick="hideCart()" class="text-gray-500"><i class="bi bi-x text-2xl"></i></button>
+                </div>
+                <div id="cartItems" class="space-y-4">
+                    <!-- Cart items will be dynamically added here -->
+                </div>
+                <div class="mt-4 pt-4 border-t">
+                    <div class="flex justify-between mb-4">
+                        <span class="font-bold">Total:</span>
+                        <span id="cartTotal" class="font-bold">$0.00</span>
+                    </div>
+                    <button onclick="proceedToPayment()" class="w-full bg-red-500 text-white p-3 rounded-lg hover:bg-red-600 transition">
+                        Proceed to Payment
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Payment Section -->
+        <div id="paymentSection" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full">
+            <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-bold">Payment</h3>
+                    <button onclick="hidePayment()" class="text-gray-500"><i class="bi bi-x text-2xl"></i></button>
+                </div>
+                <div class="space-y-4">
+                    <input type="text" placeholder="Card Number" class="w-full p-3 border rounded-lg">
+                    <div class="grid grid-cols-2 gap-4">
+                        <input type="text" placeholder="MM/YY" class="w-full p-3 border rounded-lg">
+                        <input type="text" placeholder="CVV" class="w-full p-3 border rounded-lg">
+                    </div>
+                    <button onclick="processPayment()" class="w-full bg-red-500 text-white p-3 rounded-lg hover:bg-red-600 transition">
+                        Pay Now
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io('https://r0c8kgwocscg8gsokogwwsw4.zetaverse.one');
+        let cart = [];
+        let currentUser = null;
+
+        // Sample menu data
+        const menuItems = [
+            { id: 1, name: 'Margherita Pizza', price: 12.99, category: 'Pizza', image: 'https://images.unsplash.com/photo-1604382355076-af4b0eb60143?w=800' },
+            { id: 2, name: 'Pasta Carbonara', price: 14.99, category: 'Pasta', image: 'https://images.unsplash.com/photo-1608219994967-c8f7f711ff50?w=800' },
+            { id: 3, name: 'Caesar Salad', price: 8.99, category: 'Salads', image: 'https://images.unsplash.com/photo-1550304943-4f24f54ddde9?w=800' },
+        ];
+
+        // Authentication
+        async function login() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+
+            try {
+                const response = await fetch('https://r0c8kgwocscg8gsokogwwsw4.zetaverse.one/mongodb', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer HK9vvEjIVkTd70tSgfiBknnaDLD3',
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        appSlug: 'restaurant-app-123',
+                        action: 'read',
+                        collection: 'users',
+                        conditions: { username, password }
+                    })
+                });
+
+                const data = await response.json();
+                if (data.result.length > 0) {
+                    currentUser = username;
+                    document.getElementById('authSection').classList.add('hidden');
+                    document.getElementById('menuSection').classList.remove('hidden');
+                    renderMenu();
+                } else {
+                    alert('Invalid credentials');
+                }
+            } catch (error) {
+                console.error('Login error:', error);
+                alert('Login failed');
+            }
+        }
+
+        function logout() {
+            currentUser = null;
+            cart = [];
+            document.getElementById('menuSection').classList.add('hidden');
+            document.getElementById('authSection').classList.remove('hidden');
+        }
+
+        // Menu rendering
+        function renderMenu() {
+            const menuContainer = document.getElementById('menuItems');
+            menuContainer.innerHTML = menuItems.map(item => `
+                <div class="bg-white rounded-lg shadow-md overflow-hidden">
+                    <img src="${item.image}" alt="${item.name}" class="w-full h-48 object-cover">
+                    <div class="p-4">
+                        <h3 class="text-lg font-semibold">${item.name}</h3>
+                        <p class="text-gray-600">${item.category}</p>
+                        <div class="flex justify-between items-center mt-4">
+                            <span class="text-lg font-bold">$${item.price}</span>
+                            <button onclick="addToCart(${item.id})" class="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition">
+                                Add to Cart
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Cart functions
+        function addToCart(itemId) {
+            const item = menuItems.find(i => i.id === itemId);
+            cart.push(item);
+            updateCartCount();
+        }
+
+        function updateCartCount() {
+            document.getElementById('cartCount').textContent = cart.length;
+        }
+
+        function showCart() {
+            document.getElementById('cartSection').classList.remove('hidden');
+            renderCart();
+        }
+
+        function hideCart() {
+            document.getElementById('cartSection').classList.add('hidden');
+        }
+
+        function renderCart() {
+            const cartContainer = document.getElementById('cartItems');
+            cartContainer.innerHTML = cart.map((item, index) => `
+                <div class="flex justify-between items-center">
+                    <div>
+                        <h4 class="font-semibold">${item.name}</h4>
+                        <p class="text-gray-600">$${item.price}</p>
+                    </div>
+                    <button onclick="removeFromCart(${index})" class="text-red-500">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </div>
+            `).join('');
+
+            const total = cart.reduce((sum, item) => sum + item.price, 0);
+            document.getElementById('cartTotal').textContent = `$${total.toFixed(2)}`;
+        }
+
+        function removeFromCart(index) {
+            cart.splice(index, 1);
+            updateCartCount();
+            renderCart();
+        }
+
+        // Payment functions
+        function proceedToPayment() {
+            hideCart();
+            document.getElementById('paymentSection').classList.remove('hidden');
+        }
+
+        function hidePayment() {
+            document.getElementById('paymentSection').classList.add('hidden');
+        }
+
+        async function processPayment() {
+            try {
+                // Save order to database
+                const order = {
+                    userId: currentUser,
+                    items: cart,
+                    total: cart.reduce((sum, item) => sum + item.price, 0),
+                    status: 'pending',
+                    tableNumber: 7,
+                    timestamp: new Date().toISOString()
+                };
+
+                const response = await fetch('https://r0c8kgwocscg8gsokogwwsw4.zetaverse.one/mongodb', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer HK9vvEjIVkTd70tSgfiBknnaDLD3',
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        appSlug: 'restaurant-app-123',
+                        action: 'create',
+                        collection: 'orders',
+                        data: order
+                    })
+                });
+
+                if (response.ok) {
+                    // Emit order to kitchen
+                    socket.emit('new-order', order);
+                    
+                    alert('Order placed successfully!');
+                    cart = [];
+                    updateCartCount();
+                    hidePayment();
+                }
+            } catch (error) {
+                console.error('Payment error:', error);
+                alert('Payment failed');
+            }
+        }
+
+        // Socket connection for real-time updates
+        socket.on('connect', () => {
+            console.log('Connected to server');
+        });
+
+        socket.on('order-update', (data) => {
+            console.log('Order update received:', data);
+        });
+    </script>
+<script>document.body.addEventListener('wheel', e => { if (!e.ctrlKey) return; e.preventDefault(); return }, { passive: false })</script>
+	</body>
+</html>
